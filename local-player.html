@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Local Player</title>
+<style>
+  :root{
+    --bg-0: #ffffff;
+    --bg-1: #f5f5f7;
+    --text: #1D1D1F;
+    --text-secondary: rgba(29,29,31,0.6);
+    --accent: #0071E3;
+    --danger: #D70015;
+    --glass-fill: rgba(255,255,255,0.55);
+    --glass-fill-strong: rgba(255,255,255,0.72);
+    --glass-border: rgba(0,0,0,0.08);
+    --track: rgba(0,0,0,0.14);
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+
+  *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body{ height: 100%; margin: 0; }
+
+  body{
+    background: radial-gradient(ellipse 120% 80% at 50% 0%, var(--bg-0) 0%, var(--bg-1) 100%);
+    color: var(--text);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  .app{
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+
+  .stage{
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    min-height: 0;
+    cursor: pointer;
+  }
+
+  .app.has-video .stage{ cursor: default; }
+
+  .stage:focus-visible{
+    outline: 2px solid var(--accent);
+    outline-offset: -3px;
+  }
+
+  video{
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+    opacity: 0;
+    transform: scale(1.015);
+    transition: opacity .7s var(--ease), transform .7s var(--ease);
+  }
+  .app.has-video video{ opacity: 1; transform: scale(1); }
+
+  /* ---------- Empty state: glass card ---------- */
+  .empty{
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 56px 64px;
+    border-radius: 28px;
+    background: var(--glass-fill);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.6);
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+    animation: rise .9s var(--ease) .1s forwards;
+    transition: opacity .5s var(--ease), transform .5s var(--ease);
+  }
+  .app.has-video .empty{
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+    pointer-events: none;
+  }
+
+  @keyframes rise{
+    to{ opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .invite{
+    font-family: var(--font);
+    font-weight: 600;
+    font-size: clamp(1.9rem, 4.2vw, 2.9rem);
+    letter-spacing: -0.025em;
+    line-height: 1.08;
+    margin: 0 0 10px;
+    color: var(--text);
+  }
+
+  .hint{
+    font-size: .98rem;
+    font-weight: 400;
+    letter-spacing: -0.005em;
+    color: var(--text-secondary);
+    margin: 0 0 26px;
+  }
+
+  .browse-btn{
+    font-family: var(--font);
+    font-size: .95rem;
+    font-weight: 590;
+    letter-spacing: -0.01em;
+    color: #fff;
+    background: var(--accent);
+    border: none;
+    padding: 12px 26px;
+    border-radius: 980px;
+    cursor: pointer;
+    transition: transform .35s var(--ease-spring), background .2s var(--ease), box-shadow .3s var(--ease);
+    box-shadow: 0 6px 20px rgba(0,113,227,0.35);
+  }
+  .browse-btn:hover{ transform: scale(1.045); background: #1a91ff; }
+  .browse-btn:active{ transform: scale(0.95); }
+  .browse-btn:focus-visible{ outline: 2px solid #fff; outline-offset: 3px; }
+
+  /* Drag-over wash across the whole stage */
+  .stage::before{
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: radial-gradient(ellipse 90% 70% at 50% 50%, rgba(0,113,227,0.16), transparent 70%);
+    box-shadow: inset 0 0 0 2px rgba(0,113,227,0);
+    opacity: 0;
+    transition: opacity .35s var(--ease), box-shadow .35s var(--ease);
+    pointer-events: none;
+  }
+  .stage.dragover::before{
+    opacity: 1;
+    box-shadow: inset 0 0 0 2px rgba(0,113,227,0.55);
+  }
+
+  /* ---------- Filename pill (top-left) ---------- */
+  .filename-pill{
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 3;
+    max-width: 60%;
+    padding: 8px 16px;
+    border-radius: 980px;
+    background: var(--glass-fill-strong);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    font-size: .8rem;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity .4s var(--ease), transform .4s var(--ease);
+    pointer-events: none;
+  }
+  .app.has-video .filename-pill.visible{ opacity: 1; transform: translateY(0); }
+
+  /* ---------- Error toast ---------- */
+  .error{
+    position: absolute;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%) translateY(8px);
+    z-index: 4;
+    background: var(--glass-fill-strong);
+    border: 1px solid rgba(215,0,21,0.3);
+    color: var(--danger);
+    padding: 10px 18px;
+    font-size: .82rem;
+    font-weight: 500;
+    border-radius: 14px;
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .3s var(--ease), transform .3s var(--ease);
+    max-width: 80%;
+    text-align: center;
+  }
+  .error.visible{ opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ---------- Floating glass control bar ---------- */
+  .controls{
+    position: absolute;
+    left: 50%;
+    bottom: 26px;
+    z-index: 3;
+    display: none;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    border-radius: 22px;
+    background: var(--glass-fill-strong);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    box-shadow: 0 12px 34px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6);
+    opacity: 0;
+    transform: translate(-50%, 14px);
+    transition: opacity .4s var(--ease), transform .4s var(--ease);
+    width: min(560px, calc(100% - 40px));
+  }
+  .app.has-video .controls{ display: flex; }
+  .controls.visible{ opacity: 1; transform: translate(-50%, 0); }
+
+  .ctrl-btn{
+    background: none;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: transform .3s var(--ease-spring), background .2s var(--ease), color .2s var(--ease);
+  }
+  .ctrl-btn:hover{ background: rgba(0,0,0,0.06); transform: scale(1.1); }
+  .ctrl-btn:active{ transform: scale(0.9); }
+  .ctrl-btn:focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .time{
+    font-size: .78rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    min-width: 40px;
+    flex-shrink: 0;
+    letter-spacing: -0.01em;
+  }
+  #currentTime{ text-align: right; }
+
+  input[type="range"]{
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    height: 16px;
+  }
+  .scrubber{ flex: 1; min-width: 60px; }
+  .volume{ width: 70px; flex-shrink: 0; }
+
+  input[type="range"]::-webkit-slider-runnable-track{ height: 4px; border-radius: 3px; background: transparent; }
+  input[type="range"]::-moz-range-track{ height: 4px; border-radius: 3px; background: transparent; }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance: none;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #fff;
+    margin-top: -4.5px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.25);
+    transition: transform .2s var(--ease-spring);
+  }
+  input[type="range"]::-moz-range-thumb{
+    width: 13px;
+    height: 13px;
+    border: none;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.25);
+  }
+  input[type="range"]:hover::-webkit-slider-thumb{ transform: scale(1.25); }
+  input[type="range"]:focus-visible{ outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+
+  @media (max-width: 560px){
+    .volume{ display: none; }
+    .empty{ padding: 40px 30px; border-radius: 22px; }
+    .invite{ font-size: 1.7rem; }
+    .hint{ font-size: .88rem; }
+    .controls{ gap: 10px; padding: 10px 14px; bottom: 16px; }
+    .filename-pill{ font-size: .74rem; padding: 6px 12px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="app" id="app">
+    <div class="stage" id="stage" tabindex="0" role="button" aria-label="Drop a video file here, or press Enter to browse for one">
+      <video id="video" playsinline></video>
+
+      <div class="filename-pill" id="filenamePill"></div>
+
+      <div class="empty" id="emptyState">
+        <p class="invite">Drop a video<br>to begin</p>
+        <p class="hint">MP4, WebM, MOV — plays instantly, right from your device</p>
+        <button type="button" class="browse-btn" id="browseBtn">Browse video</button>
+      </div>
+
+      <div class="error" id="errorMsg"></div>
+
+      <div class="controls" id="controls">
+        <button class="ctrl-btn" id="playBtn" aria-label="Play"></button>
+        <span class="time" id="currentTime">00:00</span>
+        <input type="range" class="scrubber" id="scrubber" min="0" max="100" step="0.01" value="0" aria-label="Seek">
+        <span class="time" id="duration">00:00</span>
+        <button class="ctrl-btn" id="muteBtn" aria-label="Mute"></button>
+        <input type="range" class="volume" id="volume" min="0" max="1" step="0.01" value="1" aria-label="Volume">
+        <button class="ctrl-btn" id="fullscreenBtn" aria-label="Fullscreen"></button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept="video/*" hidden>
+
+<script>
+(function(){
+  const app = document.getElementById('app');
+  const stage = document.getElementById('stage');
+  const video = document.getElementById('video');
+  const fileInput = document.getElementById('fileInput');
+  const filenamePill = document.getElementById('filenamePill');
+  const errorMsg = document.getElementById('errorMsg');
+  const browseBtn = document.getElementById('browseBtn');
+
+  const playBtn = document.getElementById('playBtn');
+  const muteBtn = document.getElementById('muteBtn');
+  const fullscreenBtn = document.getElementById('fullscreenBtn');
+  const scrubber = document.getElementById('scrubber');
+  const volume = document.getElementById('volume');
+  const currentTimeEl = document.getElementById('currentTime');
+  const durationEl = document.getElementById('duration');
+  const controlsBar = document.getElementById('controls');
+
+  const icons = {
+    play: '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M6 4l14 8-14 8V4z" fill="currentColor"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" width="15" height="15"><rect x="5" y="4" width="5" height="16" rx="1.5" fill="currentColor"/><rect x="14" y="4" width="5" height="16" rx="1.5" fill="currentColor"/></svg>',
+    speaker: '<svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 010 7" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>',
+    muted: '<svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor"/><path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+    fullscreen: '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  };
+
+  playBtn.innerHTML = icons.play;
+  muteBtn.innerHTML = icons.speaker;
+  fullscreenBtn.innerHTML = icons.fullscreen;
+
+  let objectUrl = null;
+  let errorTimeout = null;
+  let scrubbing = false;
+  let dragCounter = 0;
+  let hideTimeout = null;
+
+  function formatTime(t){
+    if(!isFinite(t) || isNaN(t)) t = 0;
+    t = Math.max(0, t);
+    const h = Math.floor(t / 3600);
+    const m = Math.floor((t % 3600) / 60);
+    const s = Math.floor(t % 60);
+    if(h > 0) return h + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  }
+
+  function showError(msg){
+    errorMsg.textContent = msg;
+    errorMsg.classList.add('visible');
+    clearTimeout(errorTimeout);
+    errorTimeout = setTimeout(() => errorMsg.classList.remove('visible'), 4000);
+  }
+
+  function setScrubberFill(pct){
+    scrubber.style.background = 'linear-gradient(to right, var(--accent) ' + pct + '%, var(--track) ' + pct + '%)';
+  }
+  function setVolumeFill(pct){
+    volume.style.background = 'linear-gradient(to right, var(--accent) ' + pct + '%, var(--track) ' + pct + '%)';
+  }
+
+  function loadFile(file){
+    if(!file) return;
+    if(!file.type.startsWith('video/')){
+      showError('"' + file.name + '" doesn\u2019t look like a video. Try MP4 or WebM.');
+      return;
+    }
+    if(objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = URL.createObjectURL(file);
+    video.pause();
+    video.src = objectUrl;
+    video.load();
+    filenamePill.textContent = file.name;
+    filenamePill.classList.add('visible');
+    app.classList.add('has-video');
+    playBtn.innerHTML = icons.play;
+    video.play().catch(() => {});
+    showControls();
+  }
+
+  // Click / keyboard to browse when empty
+  function openBrowser(e){ if(e) e.stopPropagation(); fileInput.click(); }
+  stage.addEventListener('click', () => { if(!app.classList.contains('has-video')) fileInput.click(); });
+  browseBtn.addEventListener('click', openBrowser);
+  stage.addEventListener('keydown', (e) => {
+    if(!app.classList.contains('has-video') && (e.key === 'Enter' || e.key === ' ')){
+      e.preventDefault();
+      fileInput.click();
+    }
+  });
+  fileInput.addEventListener('change', (e) => loadFile(e.target.files[0]));
+
+  // Click on loaded video toggles play/pause
+  video.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+
+  // Drag and drop anywhere in the window — replaces an in-progress video too
+  function hasFiles(e){
+    return e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files');
+  }
+  window.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    if(!hasFiles(e)) return;
+    dragCounter++;
+    stage.classList.add('dragover');
+  });
+  window.addEventListener('dragover', (e) => { e.preventDefault(); });
+  window.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    if(!hasFiles(e)) return;
+    dragCounter = Math.max(0, dragCounter - 1);
+    if(dragCounter === 0) stage.classList.remove('dragover');
+  });
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    stage.classList.remove('dragover');
+    if(!hasFiles(e)) return;
+    loadFile(e.dataTransfer.files[0]);
+  });
+
+  // Playback controls
+  function togglePlay(){ if(video.paused) video.play(); else video.pause(); }
+  playBtn.addEventListener('click', togglePlay);
+  video.addEventListener('play', () => { playBtn.innerHTML = icons.pause; showControls(); });
+  video.addEventListener('pause', () => {
+    playBtn.innerHTML = icons.play;
+    clearTimeout(hideTimeout);
+    controlsBar.classList.add('visible');
+    filenamePill.classList.add('visible');
+  });
+  video.addEventListener('ended', () => {
+    playBtn.innerHTML = icons.play;
+    clearTimeout(hideTimeout);
+    controlsBar.classList.add('visible');
+    filenamePill.classList.add('visible');
+  });
+
+  video.addEventListener('loadedmetadata', () => {
+    scrubber.max = video.duration || 0;
+    durationEl.textContent = formatTime(video.duration);
+  });
+  video.addEventListener('timeupdate', () => {
+    if(scrubbing) return;
+    scrubber.value = video.currentTime;
+    currentTimeEl.textContent = formatTime(video.currentTime);
+    const pct = video.duration ? (video.currentTime / video.duration) * 100 : 0;
+    setScrubberFill(pct);
+  });
+  scrubber.addEventListener('mousedown', () => { scrubbing = true; showControls(); });
+  scrubber.addEventListener('touchstart', () => { scrubbing = true; showControls(); });
+  window.addEventListener('mouseup', () => scrubbing = false);
+  window.addEventListener('touchend', () => scrubbing = false);
+  scrubber.addEventListener('input', () => {
+    video.currentTime = parseFloat(scrubber.value);
+    currentTimeEl.textContent = formatTime(video.currentTime);
+    const pct = video.duration ? (video.currentTime / video.duration) * 100 : 0;
+    setScrubberFill(pct);
+  });
+
+  function updateMuteIcon(){
+    const isMuted = video.muted || video.volume === 0;
+    muteBtn.innerHTML = isMuted ? icons.muted : icons.speaker;
+    muteBtn.setAttribute('aria-label', isMuted ? 'Unmute' : 'Mute');
+  }
+  muteBtn.addEventListener('click', () => { video.muted = !video.muted; updateMuteIcon(); showControls(); });
+  volume.addEventListener('input', () => {
+    video.volume = parseFloat(volume.value);
+    video.muted = false;
+    updateMuteIcon();
+    setVolumeFill(video.volume * 100);
+    showControls();
+  });
+  setVolumeFill(100);
+
+  fullscreenBtn.addEventListener('click', () => {
+    if(!document.fullscreenElement){
+      (stage.requestFullscreen || stage.webkitRequestFullscreen || function(){}).call(stage);
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen || function(){}).call(document);
+    }
+    showControls();
+  });
+
+  // Auto-hide the glass control bar during playback, reveal on activity
+  function showControls(){
+    controlsBar.classList.add('visible');
+    filenamePill.classList.add('visible');
+    clearTimeout(hideTimeout);
+    if(!video.paused){
+      hideTimeout = setTimeout(() => {
+        controlsBar.classList.remove('visible');
+        filenamePill.classList.remove('visible');
+      }, 2800);
+    }
+  }
+  stage.addEventListener('mousemove', () => { if(app.classList.contains('has-video')) showControls(); });
+  stage.addEventListener('touchstart', () => { if(app.classList.contains('has-video')) showControls(); });
+
+  document.addEventListener('keydown', (e) => {
+    if(!app.classList.contains('has-video')) return;
+    if(document.activeElement && document.activeElement.tagName === 'INPUT') return;
+    switch(e.key){
+      case ' ':
+        e.preventDefault();
+        togglePlay();
+        break;
+      case 'ArrowRight':
+        video.currentTime = Math.min(video.duration || 0, video.currentTime + 5);
+        showControls();
+        break;
+      case 'ArrowLeft':
+        video.currentTime = Math.max(0, video.currentTime - 5);
+        showControls();
+        break;
+      case 'f': case 'F':
+        fullscreenBtn.click();
+        break;
+      case 'm': case 'M':
+        muteBtn.click();
+        break;
+    }
+  });
+})();
+</script>
+</body>
+</html>
